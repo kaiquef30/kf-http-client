@@ -22,9 +22,17 @@ public class KfHttpClient {
     private final KfConfig config;
     private final KfHttpTracer tracer;
 
+    public KfHttpClient() {
+        this(KfConfig.defaultConfig());
+    }
+    
+    public static KfHttpClient createDefault() {
+        return new KfHttpClient(KfConfig.defaultConfig());
+    }
+    
     public KfHttpClient(KfConfig config) {
         this.config = config;
-        this.tracer = config.getTracer();;
+        this.tracer = config.getTracer();
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(config.getTimeout())
                 .cookieHandler(config.getCookieManager())
@@ -41,94 +49,128 @@ public class KfHttpClient {
         this.interceptor = config.getInterceptor();
     }
 
+    
+    public HttpResponseWrapper get(String url) throws IOException, InterruptedException {
+        return get(url, Map.of());
+    }
+    
     public HttpResponseWrapper get(String url, Map<String, String> headers) throws IOException, InterruptedException {
         HttpRequest request = HttpRequestBuilder.buildGet(url, headers);
         return send(request);
     }
-
-    public HttpResponseWrapper postJson(String url, String jsonBody, Map<String, String> headers) throws IOException, InterruptedException {
+    
+    public HttpResponseWrapper postJson(String url, String jsonBody) throws IOException, InterruptedException {
+        return postJson(url, jsonBody, Map.of());
+    }
+    
+    public HttpResponseWrapper postJson(String url, String jsonBody, Map<String, String> headers)
+            throws IOException, InterruptedException {
         HttpRequest request = HttpRequestBuilder.buildPostJson(url, jsonBody, headers);
         return send(request);
     }
-
-    public HttpResponseWrapper postForm(String url, Map<String, String> formData, Map<String, String> headers) throws IOException, InterruptedException {
+    
+    public HttpResponseWrapper postForm(String url, Map<String, String> formData)
+            throws IOException, InterruptedException {
+        return postForm(url, formData, Map.of());
+    }
+    
+    public HttpResponseWrapper postForm(String url, Map<String, String> formData, Map<String, String> headers)
+            throws IOException, InterruptedException {
         HttpRequest request = HttpRequestBuilder.buildPostForm(url, formData, headers);
         return send(request);
     }
-
-    public HttpResponseWrapper put(String url, String jsonBody, Map<String, String> headers) throws IOException, InterruptedException {
+    
+    public HttpResponseWrapper put(String url, String jsonBody) throws IOException, InterruptedException {
+        return put(url, jsonBody, Map.of());
+    }
+    
+    public HttpResponseWrapper put(String url, String jsonBody, Map<String, String> headers)
+            throws IOException, InterruptedException {
         HttpRequest request = HttpRequestBuilder.buildPut(url, jsonBody, headers);
         return send(request);
     }
 
-    public HttpResponseWrapper delete(String url, Map<String, String> headers) throws IOException, InterruptedException {
+    public HttpResponseWrapper delete(String url, Map<String, String> headers)
+            throws IOException, InterruptedException {
         HttpRequest request = HttpRequestBuilder.buildDelete(url, headers);
         return send(request);
     }
 
     private HttpResponseWrapper send(HttpRequest request) throws IOException, InterruptedException {
-        if (tracer != null) tracer.onRequest(request);
+        if (tracer != null) {
+            tracer.onRequest(request);
+        }
         Instant start = Instant.now();
-
-        if (interceptor != null) interceptor.beforeSend(request);
-
+        
+        if (interceptor != null) {
+            interceptor.beforeSend(request);
+        }
+        
         if (config.getProxy() != null && config.getProxy().hasAuth()) {
             String authHeader = config.getProxy().getAuthHeader();
 
             HttpRequest.Builder rebuilt = HttpRequest.newBuilder(request.uri())
-                    .method(request.method(), request.bodyPublisher().orElse(HttpRequest.BodyPublishers.noBody()));
-
+                    .method(request.method(), request.bodyPublisher()
+                            .orElse(HttpRequest.BodyPublishers.noBody()));
+            
             request.headers().map().forEach((k, v) -> v.forEach(val -> rebuilt.header(k, val)));
 
             rebuilt.setHeader("Proxy-Authorization", authHeader);
             request = rebuilt.build();
         }
 
-        HttpResponse<byte[]> response = null;
+        HttpResponse<byte[]> response;
         int attempt = 1;
-
         KfRetryPolicy retryPolicy = config.getRetryPolicy();
-        boolean shouldRetry;
-        IOException lastException = null;
-
-        do {
+        
+        while (true) {
             try {
                 response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-                shouldRetry = retryPolicy != null &&
-                        attempt < retryPolicy.getMaxAttempts() &&
-                        retryPolicy.shouldRetry(response.statusCode());
-                if (!shouldRetry) break;
-
+                
+                if (retryPolicy == null ||
+                        attempt >= retryPolicy.getMaxAttempts() ||
+                        !retryPolicy.shouldRetry(response.statusCode())) {
+                    break;
+                }
+                
                 long delay = retryPolicy.getDelayForAttempt(attempt);
                 Thread.sleep(delay);
                 attempt++;
-            } catch (IOException | InterruptedException e) {
-                lastException = e instanceof IOException ? (IOException) e : null;
-                if (retryPolicy == null || attempt >=  (retryPolicy.getMaxAttempts())) {
-                    if (lastException != null) throw lastException;
+            } catch (InterruptedException e) {
+                // honra o cancelamento
+                Thread.currentThread().interrupt();
+                throw e;
+            } catch (IOException e) {
+                if (retryPolicy == null || attempt >= retryPolicy.getMaxAttempts()) {
                     throw e;
                 }
                 long delay = retryPolicy.getDelayForAttempt(attempt);
                 Thread.sleep(delay);
                 attempt++;
             }
-        } while (true);
-
-        String encoding = response.headers().firstValue("Content-Encoding").orElse("").toLowerCase(Locale.ROOT);
+        }
+        
+        String encoding = response.headers()
+                .firstValue("Content-Encoding")
+                .orElse("")
+                .toLowerCase(Locale.ROOT);
+        
         String decodedBody;
-
         if ("gzip".equals(encoding)) {
-            try (var gzipStream = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(response.body()))) {
+            try (var gzipStream = new java.util.zip.GZIPInputStream(
+                    new java.io.ByteArrayInputStream(response.body()))) {
                 decodedBody = new String(gzipStream.readAllBytes(), StandardCharsets.UTF_8);
             } catch (IOException e) {
-                decodedBody = "[ERROR] Falha ao descompactar GZIP: " + e.getMessage();
+                decodedBody = "[ERROR] Failed to decompress GZIP: " + e.getMessage();
             }
         } else {
             decodedBody = new String(response.body(), StandardCharsets.UTF_8);
         }
-
-        if (interceptor != null) interceptor.afterReceive(response);
-
+        
+        if (interceptor != null) {
+            interceptor.afterReceive(response);
+        }
+        
         if (tracer != null) {
             Duration duration = Duration.between(start, Instant.now());
             tracer.onResponse(request, response, duration, decodedBody);
@@ -140,7 +182,7 @@ public class KfHttpClient {
     public String extractFieldFromJson(String body, String fieldName) {
         if (body == null || fieldName == null) return null;
 
-        String regex = "\""+Pattern.quote(fieldName)+"\"\\s*:\\s*\"([^\"]+)\"";
+        String regex = "\"" + Pattern.quote(fieldName) + "\"\\s*:\\s*\"([^\"]+)\"";
         Pattern pattern = Pattern.compile(regex);
         Matcher matcher = pattern.matcher(body);
 

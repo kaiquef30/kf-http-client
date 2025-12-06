@@ -20,9 +20,13 @@ public class KfConfig {
     private final KfHttpTracer tracer;
     private final KfRetryPolicy retryPolicy;
 
-    public KfConfig(Duration timeout, KfProxy proxy, SSLContext sslContext,
-                    KfInterceptor interceptor, KfHttpTracer tracer, KfRetryPolicy retryPolicy) {
-
+    public KfConfig(Duration timeout,
+                    KfProxy proxy,
+                    SSLContext sslContext,
+                    KfInterceptor interceptor,
+                    KfHttpTracer tracer,
+                    KfRetryPolicy retryPolicy) {
+        
         this.timeout = timeout;
         this.proxy = proxy;
         this.sslContext = sslContext;
@@ -43,7 +47,11 @@ public class KfConfig {
                 null
         );
     }
-
+    
+    public static Builder builder() {
+        return new Builder();
+    }
+    
     public KfConfig withTracer(KfHttpTracer tracer) {
         return new KfConfig(timeout, proxy, sslContext, interceptor, tracer, retryPolicy);
     }
@@ -82,5 +90,52 @@ public class KfConfig {
 
     public KfRetryPolicy getRetryPolicy() {
         return retryPolicy;
+    }
+    
+    
+    public static final class Builder {
+        private Duration timeout = Duration.ofSeconds(10);
+        private KfProxy proxy;
+        private SSLContext sslContext;
+        private KfInterceptor interceptor;
+        private KfHttpTracer tracer = new KfDebugTracer();
+        private KfRetryPolicy retryPolicy;
+        
+        private Builder() {
+        }
+        
+        public Builder timeout(Duration timeout) {
+            this.timeout = timeout;
+            return this;
+        }
+        
+        public Builder proxy(KfProxy proxy) {
+            this.proxy = proxy;
+            return this;
+        }
+        
+        public Builder sslContext(SSLContext sslContext) {
+            this.sslContext = sslContext;
+            return this;
+        }
+        
+        public Builder interceptor(KfInterceptor interceptor) {
+            this.interceptor = interceptor;
+            return this;
+        }
+        
+        public Builder tracer(KfHttpTracer tracer) {
+            this.tracer = tracer;
+            return this;
+        }
+        
+        public Builder retryPolicy(KfRetryPolicy retryPolicy) {
+            this.retryPolicy = retryPolicy;
+            return this;
+        }
+        
+        public KfConfig build() {
+            return new KfConfig(timeout, proxy, sslContext, interceptor, tracer, retryPolicy);
+        }
     }
 }

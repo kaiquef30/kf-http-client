@@ -4,15 +4,15 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
-public class KfCurlRequest {
-
-    public String method;
-    public String url;
-    public Map<String, String> headers;
-    public String body;
-    public boolean isJson;
-    public boolean isFormUrlEncoded;
-
+public record KfCurlRequest(
+        String method,
+        String url,
+        Map<String, String> headers,
+        String body,
+        boolean isJson,
+        boolean isFormUrlEncoded
+) {
+    
     @Override
     public String toString() {
 
@@ -24,7 +24,10 @@ public class KfCurlRequest {
 
         if (headers != null && !headers.isEmpty()) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
-                builder.append("  ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+                builder.append("  ").append(entry.getKey())
+                        .append(": ")
+                        .append(entry.getValue())
+                        .append("\n");
             }
         } else {
             builder.append("  (none)\n");
@@ -36,7 +39,9 @@ public class KfCurlRequest {
             for (String pair : pairs) {
                 String[] kv = pair.split("=", 2);
                 String key = URLDecoder.decode(kv[0], StandardCharsets.UTF_8);
-                String value = kv.length > 1 ? URLDecoder.decode(kv[1], StandardCharsets.UTF_8) : "";
+                String value = kv.length > 1
+                        ? URLDecoder.decode(kv[1], StandardCharsets.UTF_8)
+                        : "";
                 builder.append("  ").append(key).append(" = ").append(value).append("\n");
             }
         } else if (body != null) {

@@ -5,14 +5,23 @@ import java.util.function.Consumer;
 
 class KfRequestStep {
 
-    String method;
-    String url;
-    Object body;
-    Consumer<Map<String, String>> headerModifier;
+    enum Method {
+        GET,
+        POST_JSON,
+        POST_FORM
+    }
+    
+    final Method method;
+    final String url;
+    final Object body;
+    final Consumer<Map<String, String>> headerModifier;
     String extractKey;
     String extractRegex;
-
-    public KfRequestStep(String method, String url, Object body, Consumer<Map<String, String>> headerModifier) {
+    
+    KfRequestStep(Method method,
+                  String url,
+                  Object body,
+                  Consumer<Map<String, String>> headerModifier) {
         this.method = method;
         this.url = url;
         this.body = body;

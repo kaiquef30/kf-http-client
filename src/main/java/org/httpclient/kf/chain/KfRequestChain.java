@@ -4,7 +4,10 @@ import org.httpclient.kf.http.HttpResponseWrapper;
 import org.httpclient.kf.http.KfHttpClient;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,22 +23,26 @@ public class KfRequestChain {
     }
 
     public KfRequestChain get(String url, Consumer<Map<String, String>> headerModifier) {
-        steps.add(new KfRequestStep("GET", url, null, headerModifier));
+        steps.add(new KfRequestStep(KfRequestStep.Method.GET, url, null, headerModifier));
         return this;
     }
 
     public KfRequestChain postJson(String url, String body, Consumer<Map<String, String>> headerModifier) {
-        steps.add(new KfRequestStep("POST_JSON", url, body, headerModifier));
+        steps.add(new KfRequestStep(KfRequestStep.Method.POST_JSON, url, body, headerModifier));
         return this;
     }
 
-    public KfRequestChain postForm(String url, Map<String, String> formData, Consumer<Map<String, String>> headerModifier) {
-        steps.add(new KfRequestStep("POST_FORM", url, formData, headerModifier));
+    public KfRequestChain postForm(String url,
+                                   Map<String, String> formData,
+                                   Consumer<Map<String, String>> headerModifier) {
+        steps.add(new KfRequestStep(KfRequestStep.Method.POST_FORM, url, formData, headerModifier));
         return this;
     }
 
     public KfRequestChain extract(String key, String regex) {
-        steps.get(steps.size() - 1).setExtractor(key, regex);
+        if (!steps.isEmpty()) {
+            steps.get(steps.size() - 1).setExtractor(key, regex);
+        }
         return this;
     }
 
@@ -43,22 +50,28 @@ public class KfRequestChain {
         return context;
     }
 
-    public void run() throws IOException, InterruptedException {
+    public HttpResponseWrapper runAndReturnLast() throws IOException, InterruptedException {
+        HttpResponseWrapper lastResponse = null;
+        
         for (KfRequestStep step : steps) {
             Map<String, String> headers = new HashMap<>();
             step.applyHeaderModifier(headers);
-
+            
             headers.replaceAll((k, v) -> replaceTokens(v));
-
+            
             HttpResponseWrapper resp;
             switch (step.method) {
-                case "GET":
+                case GET:
                     resp = client.get(replaceTokens(step.url), headers);
                     break;
-                case "POST_JSON":
-                    resp = client.postJson(replaceTokens(step.url), replaceTokens(step.body.toString()), headers);
+                case POST_JSON:
+                    resp = client.postJson(
+                            replaceTokens(step.url),
+                            replaceTokens((String) step.body),
+                            headers
+                    );
                     break;
-                case "POST_FORM":
+                case POST_FORM:
                     @SuppressWarnings("unchecked")
                     Map<String, String> formData = (Map<String, String>) step.body;
                     Map<String, String> resolvedForm = new HashMap<>();
@@ -68,9 +81,11 @@ public class KfRequestChain {
                     resp = client.postForm(replaceTokens(step.url), resolvedForm, headers);
                     break;
                 default:
-                    throw new UnsupportedOperationException("Método não suportado: " + step.method);
+                    throw new UnsupportedOperationException("Unsupported method: " + step.method);
             }
-
+            
+            lastResponse = resp;
+            
             if (step.extractKey != null && step.extractRegex != null) {
                 Pattern pattern = Pattern.compile(step.extractRegex);
                 Matcher matcher = pattern.matcher(resp.getBody());
@@ -79,8 +94,14 @@ public class KfRequestChain {
                 }
             }
         }
+        
+        return lastResponse;
     }
-
+    
+    public void run() throws IOException, InterruptedException {
+        runAndReturnLast();
+    }
+    
     private String replaceTokens(String input) {
         if (input == null) return null;
         for (Map.Entry<String, String> entry : context.entrySet()) {
